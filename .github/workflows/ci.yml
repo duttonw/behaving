@@ -9,6 +9,32 @@ permissions:
   pull-requests: write
 
 jobs:
+  setup-services:
+    name: Setup Services
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Create directories for Selenoid
+        run: |
+          mkdir -p var/video
+          mkdir -p var/log
+          mkdir -p config/selenoid
+          # Ensure permissions are correct
+          chmod -R a+rwX var
+          chmod -R a+rwX config
+
+      - name: Upload directories as artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: selenoid-directories
+          path: |
+            var/video
+            var/log
+            config/selenoid
+
   test:
     runs-on: ubuntu-latest
 
@@ -17,55 +43,16 @@ jobs:
       matrix:
         python-version:
           - "3.10"
-          #- "3.11"
-          #- "3.12"
-          #- "3.13"
+          - "3.11"
+          - "3.12"
+          - "3.13"
           - "3.14"
 
     name: Python ${{ matrix.python-version }}
 
-    services:
-      # Selenoid service
-      selenoid:
-        image: aerokube/selenoid:latest
-        ports:
-          - 4444:4444
-        options: >-
-          --env OVERRIDE_VIDEO_OUTPUT_DIR=./var/video
-          --mount type=bind,source=${{ github.workspace }}/var/video,target=/opt/selenoid/video
-          --mount type=bind,source=${{ github.workspace }}/var/log,target=/opt/selenoid/logs
-          --mount type=bind,source=${{ github.workspace }}/config/selenoid/browsers.json,target=/etc/selenoid/browsers.json
-
-      # Selenoid UI service
-      selenoid-ui:
-        image: aerokube/selenoid-ui:latest
-        ports:
-          - 8082:8080
-        options: >-
-          --env SELENOID_URI=http://selenoid:4444
-
-      # Firefox browser service
-      firefox:
-        image: selenoid/firefox:latest
-        options: >-
-          --entrypoint "echo Only here to make sure the image is available to selenoid"
-
-      # Chrome browser service
-      chrome:
-        image: selenoid/chrome:latest
-        options: >-
-          --entrypoint "echo Only here to make sure the image is available to selenoid"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
-
-      - name: Create folders
-        run: |
-          mkdir -p var/{log,screenshots,mail,sms,gcm,downloads}
-          mkdir -p reports
-          chmod -R a+rwX var
-          chmod -R a+rwX reports
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -113,3 +100,35 @@ jobs:
         with:
           report_paths: "**/TESTS-*.xml"
           comment: true
+
+    services:
+      # Selenoid service
+      selenoid:
+        image: aerokube/selenoid:latest
+        ports:
+          - 4444:4444
+        options: >-
+          --env OVERRIDE_VIDEO_OUTPUT_DIR=./var/video
+          --mount type=bind,source=${{ github.workspace }}/var/video,target=/opt/selenoid/video
+          --mount type=bind,source=${{ github.workspace }}/var/log,target=/opt/selenoid/logs
+          --mount type=bind,source=${{ github.workspace }}/config/selenoid/browsers.json,target=/etc/selenoid/browsers.json
+
+      # Selenoid UI service
+      selenoid-ui:
+        image: aerokube/selenoid-ui:latest
+        ports:
+          - 8082:8080
+        options: >-
+          --env SELENOID_URI=http://selenoid:4444
+
+      # Firefox browser service
+      firefox:
+        image: selenoid/firefox:latest
+        options: >-
+          --entrypoint "echo Only here to make sure the image is available to selenoid"
+
+      # Chrome browser service
+      chrome:
+        image: selenoid/chrome:latest
+        options: >-
+          --entrypoint "echo Only here to make sure the image is available to selenoid"
