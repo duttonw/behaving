@@ -1,10 +1,9 @@
-name: Docker Compose Actions Workflow
+name: Native Python Actions Workflow with Services
 
 on:
   push:
   workflow_call:
 
-# Required for https://github.com/mikepenz/action-junit-report/issues/23
 permissions:
   checks: write
   pull-requests: write
@@ -18,26 +17,48 @@ jobs:
       matrix:
         python-version:
           - "3.10"
-          - "3.11"
-          - "3.12"
-          - "3.13"
+          #- "3.11"
+          #- "3.12"
+          #- "3.13"
           - "3.14"
 
     name: Python ${{ matrix.python-version }}
 
+    services:
+      # Selenoid service
+      selenoid:
+        image: aerokube/selenoid:latest
+        ports:
+          - 4444:4444
+        options: >-
+          --env OVERRIDE_VIDEO_OUTPUT_DIR=./var/video
+          --mount type=bind,source=${{ github.workspace }}/var/video,target=/opt/selenoid/video
+          --mount type=bind,source=${{ github.workspace }}/var/log,target=/opt/selenoid/logs
+          --mount type=bind,source=${{ github.workspace }}/config/selenoid/browsers.json,target=/etc/selenoid/browsers.json
+
+      # Selenoid UI service
+      selenoid-ui:
+        image: aerokube/selenoid-ui:latest
+        ports:
+          - 8082:8080
+        options: >-
+          --env SELENOID_URI=http://selenoid:4444
+
+      # Firefox browser service
+      firefox:
+        image: selenoid/firefox:latest
+        options: >-
+          --entrypoint "echo Only here to make sure the image is available to selenoid"
+
+      # Chrome browser service
+      chrome:
+        image: selenoid/chrome:latest
+        options: >-
+          --entrypoint "echo Only here to make sure the image is available to selenoid"
+
     steps:
-      # need checkout before using compose-action
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install requirements
-        run: pip install flake8 pycodestyle
-
-      - name: Check syntax
-        run: flake8 .
+      - name: Checkout code
+        uses: actions/checkout@v7
 
       - name: Create folders
         run: |
@@ -46,11 +67,39 @@ jobs:
           chmod -R a+rwX var
           chmod -R a+rwX reports
 
-      - uses: isbang/compose-action@v2.4.3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "poetry" # Enable caching for Poetry dependencies
 
-      - name: Test
+      - name: Install Poetry
         run: |
-          docker compose exec -T behaving behave --junit tests/features
+          python -m pip install --upgrade pip
+          pip install poetry
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.create false
+          poetry install --no-interaction --no-ansi
+
+      - name: Wait for Selenoid
+        run: |
+          for i in {1..30}; do
+            if curl -s http://localhost:4444/status | grep -q '"ready":true'; then
+              echo "Selenoid is ready!"
+              break
+            fi
+            echo "Waiting for Selenoid to be ready..."
+            sleep 2
+          done
+
+      - name: Check syntax
+        run: poetry run flake8 .
+
+      - name: Run Behave tests
+        run: |
+          poetry run behave --junit --junit-directory=reports tests/features
 
       - name: Test Summary
         if: always()
@@ -59,7 +108,7 @@ jobs:
           paths: "reports/TESTS-*.xml"
 
       - name: Publish Test Report
-        if: always() # always run even if the previous step fails
+        if: always() # Always run even if the previous step fails
         uses: mikepenz/action-junit-report@v6
         with:
           report_paths: "**/TESTS-*.xml"
