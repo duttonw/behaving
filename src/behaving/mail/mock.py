@@ -39,9 +39,12 @@ class DebuggingHandler(Debugging):
 
     async def handle_DATA(self, server, session, envelope):
         rcpttos = envelope.rcpt_tos
-        data = envelope.content
+        data = envelope.content  # This is a bytes object
         if self.log_to_stdout:
-            super().handle_DATA(server, session, envelope)
+            logging.debug(f"Received email from: {envelope.mail_from}")
+            logging.debug(f"Recipients: {envelope.rcpt_tos}")
+            logging.debug(f"Data: {envelope.content.decode('utf-8', errors='replace')}")
+            await super().handle_DATA(server, session, envelope)
             sys.stdout.flush()
         if self.path is None:
             return
@@ -55,6 +58,8 @@ class DebuggingHandler(Debugging):
 
         if notifier:
             notifier.notify(data, title=rcpttos, execute="open -a TextEdit " + dest)
+
+        return '250 OK'  # Return a success response to the SMTP client
 
 
 def main(args=sys.argv[1:]):
